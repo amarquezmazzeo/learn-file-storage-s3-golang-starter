@@ -1,8 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -28,10 +32,50 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
 	// TODO: implement the upload here
 
-	respondWithJSON(w, http.StatusOK, struct{}{})
+	const maxMemory = 10 << 20
+	err = r.ParseMultipartForm(maxMemory)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't parse multipart form data", err)
+		return
+	}
+
+	file, header, err := r.FormFile("thumbnail")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't parse uploaded file data", err)
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	rawFile, err := io.ReadAll(file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't read uploaded file data", err)
+		return
+	}
+
+	videoMetadata, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't locate videoID in DB", err)
+		return
+	}
+	if videoMetadata.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "VideoID does not belong to user", errors.New("video.UserID != authenticated UserID"))
+	}
+
+	tn := thumbnail{data: rawFile, mediaType: contentType}
+	videoThumbnails[videoID] = tn
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatal("PORT environment variable is not set")
+	}
+	thumbnailURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", port, videoIDString)
+	videoMetadata.ThumbnailURL = &thumbnailURL
+	err = cfg.db.UpdateVideo(videoMetadata)
+
+	respondWithJSON(w, http.StatusOK, videoMetadata)
 }
