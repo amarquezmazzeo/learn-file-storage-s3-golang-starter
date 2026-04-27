@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -66,14 +67,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "VideoID does not belong to user", errors.New("video.UserID != authenticated UserID"))
 	}
 
-	tn := thumbnail{data: rawFile, mediaType: contentType}
-	videoThumbnails[videoID] = tn
+	// tn := thumbnail{data: rawFile, mediaType: contentType}
+	// videoThumbnails[videoID] = tn
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		log.Fatal("PORT environment variable is not set")
 	}
-	thumbnailURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", port, videoIDString)
+
+	base64File := base64.StdEncoding.EncodeToString(rawFile)
+	thumbnailURL := fmt.Sprintf("data:%s;base64,%s", contentType, base64File)
 	videoMetadata.ThumbnailURL = &thumbnailURL
 	err = cfg.db.UpdateVideo(videoMetadata)
 
